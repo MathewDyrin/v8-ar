@@ -1,0 +1,1821 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+    <meta charset="UTF-8">
+    <title>SpongeBob Voice Cube</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: black;
+        }
+        #overlay {
+            z-index: 1000;
+            font-size: 24px;
+            line-height: 1.5;
+        }
+
+        #overlay button {
+            padding: 10px 20px;
+            font-size: 18px;
+            cursor: pointer;
+            background: #4CAF50;
+            border: none;
+            color: white;
+            border-radius: 5px;
+        }
+
+        #overlay button:hover {
+            background: #45a049;
+        }
+
+        #timer {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            color: white;
+            font-size: 24px;
+            font-family: Arial, sans-serif;
+            background-color: rgba(0, 0, 0, 0.5);
+            padding: 10px;
+            border-radius: 5px;
+        }
+
+        #volume-container {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            width: 30px;
+            height: 200px;
+            background-color: rgba(0, 0, 0, 0.5);
+            border-radius: 15px;
+        }
+
+        #volume-bar {
+            position: absolute;
+            bottom: 5px;
+            left: 5px;
+            width: 20px;
+            background-color: #00ff00;
+            border-radius: 10px;
+            transition: height 0.1s ease;
+        }
+    </style>
+</head>
+
+<body style="position: relative;">
+    <div id="overlay"
+        style="display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(0,0,0,0.8); color: white; padding: 20px; text-align: center; border-radius: 10px;">
+    </div>
+    <div id="timer">00:00</div>
+    <div id="volume-container">
+        <div id="volume-bar"></div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- Добавьте эти строки -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/DRACOLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+
+    <script>
+        const overlay = document.getElementById('overlay');
+        const timerElement = document.getElementById('timer');
+        const volumeBar = document.getElementById('volume-bar');
+        const textureLoader = new THREE.TextureLoader();
+
+        let scene, camera, renderer;
+        let playerCube;
+        let obstacles = [];
+        let audioInitialized = false;
+        let gameStarted = false;
+        let gameOver = false;
+        let scaleFactor = 1;
+        let startTime;
+        let isRunning = false;
+        const animatedObjects = [];
+        let particleSystem = null;
+        let particles = null;
+        let particleGeometry = null;
+        let distantMountains;
+        let playerCar; // вместо playerCube
+
+        // Текстура пор для Губки Боба
+        const spongeTexture = new THREE.TextureLoader().load('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAALEwAACxMBAJqcGAAAABl0RVh0U29mdHdhcmUAd3d3Lmlua3NjYXBlLm9yZ5vuPBoAAACDSURBVBiVbY67DYAwEEPdIApGYAW2YB02YQWGQEgU1C5FKD4VQlH0knzn+OeHZLukDUkDeD7YLAAsAOa+j3POcaME4CxE5J1SyjNzGQP8qpTSkFJ6zRO3vgBwRMTbA+/9ERFjIEXEYmaXJNsGF0kzgHsEbmZWSRZJx8x1yN3v9eHV+gDrFWMhQqzLIwAAAABJRU5ErkJggg==');
+        spongeTexture.wrapS = THREE.RepeatWrapping;
+        spongeTexture.wrapT = THREE.RepeatWrapping;
+        spongeTexture.repeat.set(5, 5);
+
+        function updateTimer() {
+            if (!isRunning) return;
+            const currentTime = new Date().getTime();
+            const elapsedTime = new Date(currentTime - startTime);
+            const minutes = elapsedTime.getMinutes().toString().padStart(2, '0');
+            const seconds = elapsedTime.getSeconds().toString().padStart(2, '0');
+            timerElement.textContent = `${minutes}:${seconds}`;
+        }
+
+        function createMountains() {
+            // Создаем группу гор
+            const mountainGroup = new THREE.Group();
+
+            // Материалы для разных оттенков коричневого
+            const mountainMaterials = [
+                new THREE.MeshStandardMaterial({
+                    color: 0x8B4513, // Седельно-коричневый
+                    roughness: 0.9,
+                    metalness: 0.1
+                }),
+                new THREE.MeshStandardMaterial({
+                    color: 0xA0522D, // Сиена
+                    roughness: 0.85,
+                    metalness: 0.1
+                }),
+                new THREE.MeshStandardMaterial({
+                    color: 0x6B4423, // Темно-коричневый
+                    roughness: 0.9,
+                    metalness: 0.1
+                })
+            ];
+
+            // Создаем несколько рядов гор
+            for (let row = 0; row < 3; row++) {
+                const zPosition = -280 - (row * 40); // Каждый ряд дальше предыдущего
+                const baseScale = 2.5 - (row * 0.3); // Передние горы больше
+
+                for (let i = -5; i <= 5; i++) {
+                    const mountainGeometry = new THREE.ConeGeometry(50, 100, 4);
+                    const mountain = new THREE.Mesh(
+                        mountainGeometry,
+                        mountainMaterials[Math.floor(Math.random() * mountainMaterials.length)]
+                    );
+
+                    // Позиционирование
+                    mountain.position.set(
+                        i * 60 + Math.random() * 30, // Случайное смещение по X
+                        40 + Math.random() * 30, // Случайная высота
+                        zPosition + Math.random() * 20 // Случайное смещение по Z
+                    );
+
+                    // Масштабирование
+                    const scaleVar = baseScale + Math.random() * 0.5;
+                    mountain.scale.set(scaleVar, scaleVar + Math.random() * 0.5, scaleVar);
+
+                    // Поворот для разнообразия
+                    mountain.rotation.y = Math.random() * Math.PI;
+
+                    // Добавляем тени
+                    mountain.castShadow = true;
+                    mountain.receiveShadow = true;
+
+                    mountainGroup.add(mountain);
+                }
+            }
+
+            // Добавляем дополнительные детали - маленькие холмы у подножия
+            for (let i = 0; i < 20; i++) {
+                const hillGeometry = new THREE.ConeGeometry(20, 40, 4);
+                const hill = new THREE.Mesh(
+                    hillGeometry,
+                    mountainMaterials[Math.floor(Math.random() * mountainMaterials.length)]
+                );
+
+                hill.position.set(
+                    Math.random() * 600 - 300, // Широкий разброс по X
+                    10, // Невысокие холмы
+                    -250 + Math.random() * 50 // Разброс по Z
+                );
+
+                const hillScale = 0.5 + Math.random() * 0.3;
+                hill.scale.set(hillScale, hillScale, hillScale);
+                hill.rotation.y = Math.random() * Math.PI;
+
+                mountainGroup.add(hill);
+            }
+
+            scene.add(mountainGroup);
+        }
+
+
+        function createSpectators() {
+            const spectatorGeometry = new THREE.Group();
+
+            // Тело
+            const bodyGeometry = new THREE.CylinderGeometry(0.2, 0.2, 1, 8);
+            const bodyMaterial = new THREE.MeshStandardMaterial({
+                color: Math.random() * 0xffffff
+            });
+            const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+            body.position.y = 0.5;
+            spectatorGeometry.add(body);
+
+            // Голова
+            const headGeometry = new THREE.SphereGeometry(0.15, 16, 16);
+            const headMaterial = new THREE.MeshStandardMaterial({ color: 0xffdbac });
+            const head = new THREE.Mesh(headGeometry, headMaterial);
+            head.position.y = 1.1;
+            spectatorGeometry.add(head);
+
+            // Руки
+            const armGeometry = new THREE.CylinderGeometry(0.05, 0.05, 0.6, 8);
+            const armMaterial = new THREE.MeshStandardMaterial({ color: bodyMaterial.color });
+
+            // Левая рука
+            const leftArm = new THREE.Mesh(armGeometry, armMaterial);
+            leftArm.position.set(-0.3, 0.8, 0);
+            leftArm.rotation.z = Math.PI / 4;
+            spectatorGeometry.add(leftArm);
+
+            // Правая рука
+            const rightArm = new THREE.Mesh(armGeometry, armMaterial);
+            rightArm.position.set(0.3, 0.8, 0);
+            rightArm.rotation.z = -Math.PI / 4;
+            spectatorGeometry.add(rightArm);
+
+            const jumpAnimation = () => {
+                const time = Date.now() * 0.01;
+                const height = Math.sin(time) * 0.1;
+                spectatorGeometry.position.y = height;
+                leftArm.rotation.z = Math.PI / 4 + Math.sin(time) * 0.2;
+                rightArm.rotation.z = -Math.PI / 4 - Math.sin(time) * 0.2;
+            };
+
+            spectatorGeometry.userData.animate = jumpAnimation;
+            return spectatorGeometry;
+        }
+
+        function addSpectators() {
+            const spacing = 5;
+            const offset = 15;
+
+            for (let z = 0; z >= -180; z -= spacing) {
+                if (Math.random() > 0.3) {
+                    const leftSpectator = createSpectators();
+                    leftSpectator.position.set(-offset, 0, z);
+                    leftSpectator.rotation.y = Math.random() * Math.PI / 2;
+                    scene.add(leftSpectator);
+                    animatedObjects.push(leftSpectator);
+                }
+
+                if (Math.random() > 0.3) {
+                    const rightSpectator = createSpectators();
+                    rightSpectator.position.set(offset, 0, z);
+                    rightSpectator.rotation.y = Math.PI - Math.random() * Math.PI / 2;
+                    scene.add(rightSpectator);
+                    animatedObjects.push(rightSpectator);
+                }
+            }
+        }
+
+        function createFinishLine() {
+            const finishLineGroup = new THREE.Group();
+
+            const squareSize = 0.5;
+            const lineWidth = 20;
+
+            for (let x = -lineWidth / 2; x < lineWidth / 2; x += squareSize) {
+                for (let z = -squareSize; z < squareSize; z += squareSize) {
+                    const squareGeometry = new THREE.PlaneGeometry(squareSize, squareSize);
+                    const squareMaterial = new THREE.MeshStandardMaterial({
+                        color: ((Math.floor(x / squareSize) + Math.floor(z / squareSize)) % 2 === 0) ? 0xffffff : 0x000000
+                    });
+                    const square = new THREE.Mesh(squareGeometry, squareMaterial);
+                    square.position.set(x + squareSize / 2, 0.01, z + squareSize / 2);
+                    square.rotation.x = -Math.PI / 2;
+                    finishLineGroup.add(square);
+                }
+            }
+
+            const archHeight = 5;
+            const archWidth = lineWidth + 2;
+
+            const archGeometry = new THREE.TorusGeometry(archWidth / 2, 0.3, 16, 32, Math.PI);
+            const archMaterial = new THREE.MeshStandardMaterial({ color: 0xff0000 });
+            const arch = new THREE.Mesh(archGeometry, archMaterial);
+            arch.position.y = archHeight;
+            arch.rotation.x = Math.PI / 2;
+            finishLineGroup.add(arch);
+
+            finishLineGroup.position.z = -190;
+            scene.add(finishLineGroup);
+        }
+
+        function createGrass() {
+            const grassGeometry = new THREE.PlaneGeometry(50, 200);
+            const grassTexture = textureLoader.load('https://threejs.org/examples/textures/terrain/grasslight-big.jpg');
+            grassTexture.wrapS = grassTexture.wrapT = THREE.RepeatWrapping;
+            grassTexture.repeat.set(15, 100);
+
+            const grassMaterial = new THREE.MeshStandardMaterial({
+                map: grassTexture,
+                color: 0x447744
+            });
+
+            // Левая сторона
+            const leftGrass = new THREE.Mesh(grassGeometry, grassMaterial);
+            leftGrass.rotation.x = -Math.PI / 2;
+            leftGrass.position.set(-35, -0.1, -100);
+            leftGrass.receiveShadow = true;
+            scene.add(leftGrass);
+
+            // Правая сторона
+            const rightGrass = new THREE.Mesh(grassGeometry, grassMaterial);
+            rightGrass.rotation.x = -Math.PI / 2;
+            rightGrass.position.set(35, -0.1, -100);
+            rightGrass.receiveShadow = true;
+            scene.add(rightGrass);
+        }
+
+        function createTree(x, z) {
+            const treeGroup = new THREE.Group();
+
+            // Ствол
+            const trunkGeometry = new THREE.CylinderGeometry(0.2, 0.3, 2, 8);
+            const trunkMaterial = new THREE.MeshStandardMaterial({ color: 0x4A2813 });
+            const trunk = new THREE.Mesh(trunkGeometry, trunkMaterial);
+            trunk.position.y = 1;
+            trunk.castShadow = true;
+            treeGroup.add(trunk);
+
+            // Крона
+            const crownGeometry = new THREE.ConeGeometry(1.5, 3, 8);
+            const crownMaterial = new THREE.MeshStandardMaterial({ color: 0x0F5722 });
+            const crown = new THREE.Mesh(crownGeometry, crownMaterial);
+            crown.position.y = 3;
+            crown.castShadow = true;
+            treeGroup.add(crown);
+
+            treeGroup.position.set(x, 0, z);
+            return treeGroup;
+        }
+
+        function addTrees() {
+            const spacing = 10;
+            const offset = 12;
+
+            for (let z = 0; z >= -200; z -= spacing) {
+                const leftTree = createTree(-offset, z);
+                scene.add(leftTree);
+
+                const rightTree = createTree(offset, z);
+                scene.add(rightTree);
+
+                const randomOffset = Math.random() * 2 - 1;
+                leftTree.position.x += randomOffset;
+                rightTree.position.x += randomOffset;
+
+                const scale = 0.8 + Math.random() * 0.4;
+                leftTree.scale.set(scale, scale, scale);
+                rightTree.scale.set(scale, scale, scale);
+            }
+        }
+
+        function createSand() {
+            const sandGeometry = new THREE.PlaneGeometry(50, 200);
+            const sandMaterial = new THREE.MeshStandardMaterial({
+                color: 0xD2A070, // Более желтый цвет песка (можно использовать также: 0xFFDB99 или 0xFFD700)
+                roughness: 0.9,
+                metalness: 0.1
+            });
+
+            // Основная дорожка (немного темнее)
+            const pathGeometry = new THREE.PlaneGeometry(10, 200);
+            const pathMaterial = new THREE.MeshStandardMaterial({
+                color: 0xEED6A4, // Чуть темнее основного песка
+                roughness: 0.9,
+                metalness: 0.1
+            });
+            const path = new THREE.Mesh(pathGeometry, pathMaterial);
+            path.rotation.x = -Math.PI / 2;
+            path.position.set(0, -0.09, -100);
+            path.receiveShadow = true;
+            scene.add(path);
+
+            // Левая сторона песка
+            const leftSand = new THREE.Mesh(sandGeometry, sandMaterial);
+            leftSand.rotation.x = -Math.PI / 2;
+            leftSand.position.set(-35, -0.1, -100);
+            leftSand.receiveShadow = true;
+            scene.add(leftSand);
+
+            // Правая сторона песка
+            const rightSand = new THREE.Mesh(sandGeometry, sandMaterial);
+            rightSand.rotation.x = -Math.PI / 2;
+            rightSand.position.set(35, -0.1, -100);
+            rightSand.receiveShadow = true;
+            scene.add(rightSand);
+
+            // Добавляем небольшие случайные неровности на песке
+            const numberOfBumps = 100;
+            const bumpGeometry = new THREE.CircleGeometry(0.5, 8);
+            const bumpMaterial = new THREE.MeshStandardMaterial({
+                color: 0xFFE4B5,
+                roughness: 1,
+                metalness: 0
+            });
+
+            for (let i = 0; i < numberOfBumps; i++) {
+                const bump = new THREE.Mesh(bumpGeometry, bumpMaterial);
+                bump.rotation.x = -Math.PI / 2;
+                bump.position.set(
+                    Math.random() * 80 - 40, // Случайная позиция по X
+                    -0.08, // Чуть выше основного песка
+                    Math.random() * 180 - 190 // Случайная позиция по Z
+                );
+                bump.scale.set(
+                    Math.random() * 0.5 + 0.5,
+                    Math.random() * 0.5 + 0.5,
+                    1
+                );
+                scene.add(bump);
+            }
+        }
+
+        function createPalm(x, z) {
+            const palmGroup = new THREE.Group();
+
+            // Ствол пальмы
+            const trunkGeometry = new THREE.CylinderGeometry(0.4, 0.6, 8 + Math.random() * 4, 8);
+            const trunkMaterial = new THREE.MeshStandardMaterial({
+                color: 0x8B4513,
+                roughness: 0.9,
+                metalness: 0.1,
+                bumpScale: 0.2
+            });
+
+            // Добавляем текстуру коры
+            const barkTextureCanvas = document.createElement('canvas');
+            const ctx = barkTextureCanvas.getContext('2d');
+            barkTextureCanvas.width = 256;
+            barkTextureCanvas.height = 256;
+
+            // Базовый цвет коры
+            ctx.fillStyle = '#8B4513';
+            ctx.fillRect(0, 0, 256, 256);
+
+            // Добавляем текстуру коры
+            for (let i = 0; i < 1000; i++) {
+                ctx.fillStyle = Math.random() > 0.5 ? '#6B3E26' : '#A0522D';
+                ctx.fillRect(
+                    Math.random() * 256,
+                    Math.random() * 256,
+                    2 + Math.random() * 4,
+                    4 + Math.random() * 8
+                );
+            }
+
+            const barkTexture = new THREE.CanvasTexture(barkTextureCanvas);
+            barkTexture.wrapS = THREE.RepeatWrapping;
+            barkTexture.wrapT = THREE.RepeatWrapping;
+            barkTexture.repeat.set(4, 4);
+            trunkMaterial.map = barkTexture;
+
+            const trunk = new THREE.Mesh(trunkGeometry, trunkMaterial);
+            trunk.castShadow = true;
+            trunk.position.y = 4;
+            // Небольшой случайный наклон ствола
+            trunk.rotation.x = (Math.random() - 0.5) * 0.2;
+            trunk.rotation.z = (Math.random() - 0.5) * 0.2;
+            palmGroup.add(trunk);
+
+            // Создаем листья
+            const leafCount = 8 + Math.random() * 4;
+            const leafColors = [
+                0x355E3B, // Темно-зеленый
+                0x2E8B57, // Морской зеленый
+                0x3CB371, // Средний морской зеленый
+                0x90EE90  // Светло-зеленый
+            ];
+
+            for (let i = 0; i < leafCount; i++) {
+                const leafGroup = new THREE.Group();
+
+                // Создаем основу листа
+                const leafShape = new THREE.Shape();
+                leafShape.moveTo(0, 0);
+                leafShape.quadraticCurveTo(1, 2, 0.3, 4);
+                leafShape.quadraticCurveTo(-1, 2, 0, 0);
+
+                const leafGeometry = new THREE.ShapeGeometry(leafShape);
+                const leafMaterial = new THREE.MeshStandardMaterial({
+                    color: leafColors[Math.floor(Math.random() * leafColors.length)],
+                    side: THREE.DoubleSide,
+                    roughness: 0.8,
+                    metalness: 0.1
+                });
+
+                const leaf = new THREE.Mesh(leafGeometry, leafMaterial);
+                leaf.scale.set(1 + Math.random() * 0.5, 1.5 + Math.random() * 0.5, 1);
+
+                // Создаем прожилки листа
+                const veinsGeometry = new THREE.BufferGeometry();
+                const veinPoints = [];
+                for (let j = 0; j < 5; j++) {
+                    veinPoints.push(
+                        0, j / 2, 0,
+                        0.2 * (j % 2), j / 2, 0
+                    );
+                }
+                veinsGeometry.setAttribute('position', new THREE.Float32BufferAttribute(veinPoints, 3));
+                const veinsMaterial = new THREE.LineBasicMaterial({ color: 0x355E3B });
+                const veins = new THREE.LineSegments(veinsGeometry, veinsMaterial);
+                leaf.add(veins);
+
+                leafGroup.add(leaf);
+
+                // Позиционируем лист
+                leafGroup.position.y = 7 + Math.random() * 2;
+                leafGroup.rotation.x = Math.random() * Math.PI * 0.25;
+                leafGroup.rotation.y = (i / leafCount) * Math.PI * 2;
+                leafGroup.rotation.z = Math.PI * 0.2 + Math.random() * Math.PI * 0.1;
+
+                palmGroup.add(leafGroup);
+            }
+
+            // Добавляем кокосы
+            const coconutCount = Math.floor(Math.random() * 3) + 1;
+            for (let i = 0; i < coconutCount; i++) {
+                const coconutGeometry = new THREE.SphereGeometry(0.3 + Math.random() * 0.1, 8, 8);
+                const coconutMaterial = new THREE.MeshStandardMaterial({
+                    color: 0x4A3728,
+                    roughness: 0.9
+                });
+                const coconut = new THREE.Mesh(coconutGeometry, coconutMaterial);
+
+                const angle = Math.random() * Math.PI * 2;
+                const radius = 0.8;
+                coconut.position.set(
+                    Math.cos(angle) * radius,
+                    7 + Math.random(),
+                    Math.sin(angle) * radius
+                );
+                palmGroup.add(coconut);
+            }
+
+            // Финальное позиционирование
+            palmGroup.position.set(x, 0, z);
+            palmGroup.scale.set(0.8 + Math.random() * 0.4, 0.8 + Math.random() * 0.4, 0.8 + Math.random() * 0.4);
+
+            return palmGroup;
+        }
+
+        // Размещаем пальмы только справа
+        function addPalms(scene) {
+            if (!scene) {
+                console.error('Scene is not defined');
+                return;
+            }
+
+            const palmPositions = [];
+            const palmCount = 40; // Количество пальм
+
+            for (let i = 0; i < palmCount; i++) {
+                let x, z;
+                let validPosition = false;
+
+                while (!validPosition) {
+                    // Размещаем пальмы слева от зданий
+                    x = 300 + Math.random() * 25; // Примерно там же, где здания
+                    z = -350 + Math.random() * 350; // Вдоль всей улицы
+
+                    validPosition = true;
+                    for (const pos of palmPositions) {
+                        const distance = Math.sqrt(Math.pow(x - pos.x, 2) + Math.pow(z - pos.z, 2));
+                        if (distance < 1) { // Минимальное расстояние между пальмами
+                            validPosition = false;
+                            break;
+                        }
+                    }
+                }
+
+                palmPositions.push({ x, z });
+                const palm = createPalm(x, z);
+                // Делаем пальмы немного меньше
+                palm.scale.set(0.6 + Math.random() * 0.3, 0.6 + Math.random() * 0.3, 0.6 + Math.random() * 0.3);
+                scene.add(palm);
+            }
+        }
+
+
+
+        function createObstacles() {
+            function createArch(z, archWidth, archHeight) {
+                const archGroup = new THREE.Group();
+
+                // Левая колонна
+                const leftPillarGeometry = new THREE.BoxGeometry(0.5, archHeight, 0.5);
+                const pillarMaterial = new THREE.MeshStandardMaterial({
+                    color: 0x8B4513,
+                    roughness: 0.7,
+                    metalness: 0.2
+                });
+                const leftPillar = new THREE.Mesh(leftPillarGeometry, pillarMaterial);
+                leftPillar.position.set(-archWidth / 2, archHeight / 2, 0);
+                leftPillar.castShadow = true;
+                archGroup.add(leftPillar);
+
+                // Правая колонна
+                const rightPillar = leftPillar.clone();
+                rightPillar.position.set(archWidth / 2, archHeight / 2, 0);
+                rightPillar.castShadow = true;
+                archGroup.add(rightPillar);
+
+                // Верхняя перекладина
+                const topGeometry = new THREE.BoxGeometry(archWidth + 0.5, 0.5, 0.5);
+                const topBeam = new THREE.Mesh(topGeometry, pillarMaterial);
+                topBeam.position.set(0, archHeight + 0.25, 0);
+                topBeam.castShadow = true;
+                archGroup.add(topBeam);
+
+                // Добавляем декоративные элементы
+                const decorSize = 0.2;
+                const decorGeometry = new THREE.BoxGeometry(decorSize, decorSize, decorSize);
+                const decorMaterial = new THREE.MeshStandardMaterial({ color: 0xA0522D });
+
+                // Верхние украшения
+                const leftDecor = new THREE.Mesh(decorGeometry, decorMaterial);
+                leftDecor.position.set(-archWidth / 2, archHeight + 0.5, 0);
+                archGroup.add(leftDecor);
+
+                const rightDecor = leftDecor.clone();
+                rightDecor.position.set(archWidth / 2, archHeight + 0.5, 0);
+                archGroup.add(rightDecor);
+
+                archGroup.position.set(0, 0, z);
+                scene.add(archGroup);
+
+                obstacles.push({
+                    archGroup,
+                    archWidth,
+                    archHeight,
+                    passed: false
+                });
+            }
+
+            // Создаем препятствия
+            const numberOfObstacles = 10;
+            for (let i = 1; i <= numberOfObstacles; i++) {
+                const archWidth = Math.random() * 1 + 1;  // Ширина от 1 до 2
+                const archHeight = Math.random() * 1 + 1; // Высота от 1 до 2
+                const zPosition = -i * 20;  // Расстояние между арками
+                createArch(zPosition, archWidth, archHeight);
+            }
+        }
+
+        function createGroundBase(width, depth, x, z) {
+            const baseGroup = new THREE.Group();
+
+            // Создаем основание под зданием (фундамент)
+            const foundationGeometry = new THREE.BoxGeometry(width + 4, 1, depth + 4);
+            const foundationMaterial = new THREE.MeshStandardMaterial({
+                color: 0xD2A070,
+                roughness: 0.9,
+                metalness: 0.1
+            });
+            const foundation = new THREE.Mesh(foundationGeometry, foundationMaterial);
+            foundation.position.y = 0.5;
+            baseGroup.add(foundation);
+
+            // Создаем грунтовку вокруг здания
+            const groundSize = {
+                width: width + 12,
+                depth: depth + 12
+            };
+
+            const groundGeometry = new THREE.PlaneGeometry(groundSize.width, groundSize.depth);
+
+            // Создаем текстуру грунта
+            const textureLoader = new THREE.TextureLoader();
+            const groundMaterial = new THREE.MeshStandardMaterial({
+                color: 0xD2A070,
+                roughness: 1,
+                metalness: 0,
+                bumpScale: 0.2
+            });
+
+            const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+            ground.rotation.x = -Math.PI / 2;
+            ground.position.y = 0.01; // Чуть выше основного уровня земли
+            baseGroup.add(ground);
+
+            // Добавляем детали грунтовки (камни, неровности)
+            const detailsCount = 20;
+            for (let i = 0; i < detailsCount; i++) {
+                const detail = new THREE.Mesh(
+                    new THREE.BoxGeometry(0.3 + Math.random() * 0.5, 0.1, 0.3 + Math.random() * 0.5),
+                    new THREE.MeshStandardMaterial({
+                        color: 0x7B6345 + Math.random() * 0x1A1A1A,
+                        roughness: 0.9
+                    })
+                );
+
+                // Располагаем детали случайным образом вокруг здания
+                const angle = Math.random() * Math.PI * 2;
+                const radius = (width + Math.random() * 8) / 2;
+                detail.position.x = Math.cos(angle) * radius;
+                detail.position.z = Math.sin(angle) * radius;
+                detail.position.y = 0.05;
+                detail.rotation.y = Math.random() * Math.PI;
+                baseGroup.add(detail);
+            }
+
+            // Добавляем ступеньки к входу
+            const stairsGroup = new THREE.Group();
+            const stepsCount = 3;
+            for (let i = 0; i < stepsCount; i++) {
+                const step = new THREE.Mesh(
+                    new THREE.BoxGeometry(2, 0.2, 1),
+                    new THREE.MeshStandardMaterial({
+                        color: 0x808080,
+                        roughness: 0.8
+                    })
+                );
+                step.position.y = i * 0.2;
+                step.position.z = depth / 2 + 1 - i * 0.3;
+                stairsGroup.add(step);
+            }
+            baseGroup.add(stairsGroup);
+
+            baseGroup.position.set(x, 0, z);
+            return baseGroup;
+        }
+
+        function createEnvironment() {
+            // Основание для всего (земля)
+            const groundGeometry = new THREE.PlaneGeometry(1000, 1000); // Увеличьте размеры плоскости
+            const groundMaterial = new THREE.MeshStandardMaterial({
+                color: 0xD2A070, // Песочный цвет (Tan)
+                roughness: 1,
+                metalness: 0
+            });
+            const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+            ground.rotation.x = -Math.PI / 2; // Повернуть плоскость, чтобы она была горизонтальна
+            ground.position.y = -1; // Убедитесь, что земля находится на уровне Y = 0
+            scene.add(ground);
+
+            // Море слева
+            const seaGeometry = new THREE.PlaneGeometry(200, 400);
+            const seaMaterial = new THREE.MeshStandardMaterial({
+                color: 0x0099FF,
+                metalness: 0.2,
+                roughness: 0.1,
+                transparent: true,
+                opacity: 0.8,
+                depthTest: true,
+                depthWrite: false, // Отключаем запись глубины
+                blending: THREE.NormalBlending,
+                side: THREE.DoubleSide
+            });
+
+            const sea = new THREE.Mesh(seaGeometry, seaMaterial);
+            sea.rotation.x = -Math.PI / 2;
+            sea.position.set(-120, 0, -100); // Немного подняли уровень моря
+            sea.name = 'sea';
+            sea.renderOrder = -1; // Рендерим море первым
+            scene.add(sea);
+
+            // Создаем второй слой моря для глубины
+            const seaBottomGeometry = new THREE.PlaneGeometry(200, 400);
+            const seaBottomMaterial = new THREE.MeshStandardMaterial({
+                color: 0x006699, // Более темный цвет для глубины
+                transparent: false,
+                depthWrite: true
+            });
+            const seaBottom = new THREE.Mesh(seaBottomGeometry, seaBottomMaterial);
+            seaBottom.rotation.x = -Math.PI / 2;
+            seaBottom.position.set(-120, -0.2, -100);
+            seaBottom.renderOrder = -2;
+            scene.add(seaBottom);
+
+            // Пляж слева
+            const beachGeometry = new THREE.PlaneGeometry(50, 400);
+            const beachMaterial = new THREE.MeshStandardMaterial({
+                color: 0xFFE4B5,
+                roughness: 0.9,
+                metalness: 0.1
+            });
+            const beach = new THREE.Mesh(beachGeometry, beachMaterial);
+            beach.rotation.x = -Math.PI / 2;
+            beach.position.set(-45, -0.1, -100);
+            scene.add(beach);
+
+            // Дорога (набережная)
+            const roadGeometry = new THREE.PlaneGeometry(20, 400);
+            const roadMaterial = new THREE.MeshStandardMaterial({
+                color: 0x808080,
+                roughness: 0.8
+            });
+            const road = new THREE.Mesh(roadGeometry, roadMaterial);
+            road.rotation.x = -Math.PI / 2;
+            road.position.set(0, -0.05, -100);
+            scene.add(road);
+
+            // Тротуар справа от дороги
+            const sidewalkGeometry = new THREE.PlaneGeometry(10, 400);
+            const sidewalkMaterial = new THREE.MeshStandardMaterial({
+                color: 0x9a9a9a,
+                roughness: 0.9
+            });
+            const sidewalk = new THREE.Mesh(sidewalkGeometry, sidewalkMaterial);
+            sidewalk.rotation.x = -Math.PI / 2;
+            sidewalk.position.set(15, -0.03, -100);
+            scene.add(sidewalk);
+
+            // Создание отдельного здания
+            function createBuilding(x, z) {
+                const buildingGroup = new THREE.Group();
+
+                // Уменьшенные размеры здания
+                const width = 8 + Math.random() * 6; // было 12 + Math.random() * 8
+                const height = 20 + Math.random() * 25; // было 30 + Math.random() * 40
+                const depth = 8 + Math.random() * 6; // было 15 + Math.random() * 8
+
+                // Создаем бетонное основание
+                const groundBaseGeometry = new THREE.BoxGeometry(width + 4, 0.5, depth + 4);
+                const groundBaseMaterial = new THREE.MeshStandardMaterial({
+                    color: 0x505050,
+                    roughness: 0.9,
+                    metalness: 0.1
+                });
+                const groundBase = new THREE.Mesh(groundBaseGeometry, groundBaseMaterial);
+                groundBase.position.y = 0.25;
+                buildingGroup.add(groundBase);
+
+                // Создаем текстуру песка
+                const sandTextureCanvas = document.createElement('canvas');
+                sandTextureCanvas.width = 128;
+                sandTextureCanvas.height = 128;
+                const sandCtx = sandTextureCanvas.getContext('2d');
+
+                sandCtx.fillStyle = '#F4D03F';
+                sandCtx.fillRect(0, 0, 128, 128);
+
+                for (let i = 0; i < 1000; i++) {
+                    const x = Math.random() * 128;
+                    const y = Math.random() * 128;
+                    const size = Math.random() * 2;
+                    sandCtx.fillStyle = Math.random() > 0.5 ? '#DAA520' : '#F7DC6F';
+                    sandCtx.beginPath();
+                    sandCtx.arc(x, y, size, 0, Math.PI * 2);
+                    sandCtx.fill();
+                }
+
+                // Песчаная поверхность вокруг здания
+                const surroundGeometry = new THREE.PlaneGeometry(width + 8, depth + 8, 10, 10);
+                const sandTexture = new THREE.CanvasTexture(sandTextureCanvas);
+                sandTexture.wrapS = THREE.RepeatWrapping;
+                sandTexture.wrapT = THREE.RepeatWrapping;
+                sandTexture.repeat.set(4, 4);
+
+                const surroundMaterial = new THREE.MeshStandardMaterial({
+                    color: 0xF4D03F,
+                    map: sandTexture,
+                    roughness: 1,
+                    metalness: 0,
+                    bumpMap: sandTexture,
+                    bumpScale: 0.1
+                });
+
+                const surroundGround = new THREE.Mesh(surroundGeometry, surroundMaterial);
+                surroundGround.rotation.x = -Math.PI / 2;
+                surroundGround.position.y = 0.01;
+                buildingGroup.add(surroundGround);
+
+                // Основное здание
+                const buildingGeometry = new THREE.BoxGeometry(width, height, depth);
+
+                // Расширенная палитра цветов для зданий
+                const buildingColors = [
+                    0xE8E8E8, // Светло-серый
+                    0xD9D9D9, // Серый
+                    0xFFE4C4, // Бисквитный
+                    0xF5DEB3, // Пшеничный
+                    0xDEB887, // Светло-коричневый
+                    0xD2B48C, // Загар
+                    0xBC8F8F, // Розово-коричневый
+                    0xF0E68C, // Светло-золотистый
+                    0xFFDAB9, // Персиковый
+                    0xFFE4B5  // Бежево-золотистый
+                ];
+
+                const buildingMaterial = new THREE.MeshStandardMaterial({
+                    color: buildingColors[Math.floor(Math.random() * buildingColors.length)],
+                    roughness: 0.7,
+                    metalness: 0.1
+                });
+
+                const mainBuilding = new THREE.Mesh(buildingGeometry, buildingMaterial);
+                mainBuilding.position.y = height / 2 + 0.5;
+                mainBuilding.castShadow = true;
+                mainBuilding.receiveShadow = true;
+
+                // Текстура стен
+                const textureSize = 512;
+                const canvas = document.createElement('canvas');
+                canvas.width = textureSize;
+                canvas.height = textureSize;
+                const ctx = canvas.getContext('2d');
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(0, 0, textureSize, textureSize);
+                ctx.strokeStyle = 'rgba(0,0,0,0.1)';
+                ctx.lineWidth = 2;
+                for (let i = 0; i < textureSize; i += 16) {
+                    ctx.beginPath();
+                    ctx.moveTo(i, 0);
+                    ctx.lineTo(i, textureSize);
+                    ctx.stroke();
+                }
+                const wallTexture = new THREE.CanvasTexture(canvas);
+                wallTexture.wrapS = THREE.RepeatWrapping;
+                wallTexture.wrapT = THREE.RepeatWrapping;
+                wallTexture.repeat.set(4, height / 8);
+                buildingMaterial.map = wallTexture;
+
+                buildingGroup.add(mainBuilding);
+
+                // Создание окон для всех сторон здания
+                const createWindowsForSide = (rotation, xOffset) => {
+                    const windowRows = Math.floor(height / 3);
+                    const windowCols = Math.floor(width / 2);
+
+                    for (let row = 0; row < windowRows; row++) {
+                        for (let col = 0; col < windowCols; col++) {
+                            const windowGroup = new THREE.Group();
+
+                            // Рама
+                            const frameGeometry = new THREE.BoxGeometry(1.0, 1.8, 0.15);
+                            const frameMaterial = new THREE.MeshStandardMaterial({
+                                color: 0x333333,
+                                metalness: 0.5,
+                                roughness: 0.8
+                            });
+                            const frame = new THREE.Mesh(frameGeometry, frameMaterial);
+
+                            // Стекло
+                            const windowGeometry = new THREE.BoxGeometry(0.8, 1.6, 0.1);
+                            const windowMaterial = new THREE.MeshPhysicalMaterial({
+                                color: 0x88CCFF,
+                                metalness: 0.9,
+                                roughness: 0.1,
+                                transparency: 0.5,
+                                transparent: true,
+                                emissive: 0x88CCFF,
+                                emissiveIntensity: 0.2
+                            });
+                            const windowPane = new THREE.Mesh(windowGeometry, windowMaterial);
+                            windowPane.position.z = 0.02;
+
+                            windowGroup.add(frame);
+                            windowGroup.add(windowPane);
+
+                            windowGroup.rotation.y = rotation;
+                            windowGroup.position.set(
+                                xOffset,
+                                2 + row * 3,
+                                -depth / 2 + 1.5 + col * 2
+                            );
+                            windowGroup.position.y += 0.5;
+
+                            buildingGroup.add(windowGroup);
+                        }
+                    }
+                };
+
+                // Создаем окна для всех четырех сторон
+                createWindowsForSide(0, width / 2 + 0.1);           // Передняя сторона
+                createWindowsForSide(Math.PI, -width / 2 - 0.1);    // Задняя сторона
+                createWindowsForSide(Math.PI / 2, depth / 2 + 0.1);   // Правая сторона
+                createWindowsForSide(-Math.PI / 2, -depth / 2 - 0.1); // Левая сторона
+
+                // Крыша
+                const roofGeometry = new THREE.BoxGeometry(width + 0.5, 1, depth + 0.5);
+                const roofMaterial = new THREE.MeshStandardMaterial({
+                    color: 0x333333,
+                    roughness: 0.8
+                });
+                const roof = new THREE.Mesh(roofGeometry, roofMaterial);
+                roof.position.y = height + 1;
+                buildingGroup.add(roof);
+
+                // Кондиционеры (меньше кондиционеров для маленьких зданий)
+                const acCount = Math.floor(Math.random() * 3) + 2;
+                for (let i = 0; i < acCount; i++) {
+                    const acGeometry = new THREE.BoxGeometry(0.8, 0.8, 0.8);
+                    const acMaterial = new THREE.MeshStandardMaterial({
+                        color: 0x666666,
+                        roughness: 0.8
+                    });
+                    const ac = new THREE.Mesh(acGeometry, acMaterial);
+
+                    // Случайное размещение кондиционеров на всех сторонах
+                    const side = Math.floor(Math.random() * 4);
+                    const rotation = side * Math.PI / 2;
+                    const offset = (side % 2 === 0) ? width / 2 : depth / 2;
+
+                    ac.rotation.y = rotation;
+                    ac.position.set(
+                        (side === 1 ? -1 : side === 3 ? 1 : 0) * offset,
+                        Math.random() * (height - 10) + 10,
+                        (side === 0 ? 1 : side === 2 ? -1 : 0) * offset
+                    );
+                    ac.position.y += 0.5;
+                    buildingGroup.add(ac);
+                }
+
+                // Финальное позиционирование
+                buildingGroup.position.set(x, 0, z);
+                buildingGroup.rotation.y = (Math.random() - 0.5) * 0.2;
+
+                return buildingGroup;
+            }
+
+
+            // Расставляем здания вдоль набережной
+            for (let z = 0; z >= -350; z -= 25) {
+                const building = createBuilding(35 + Math.random() * 10, z);
+                scene.add(building);
+            }
+
+
+            // Создание заката (большая полусфера на заднем плане)
+            const skyGeometry = new THREE.SphereGeometry(300, 32, 32, 0, Math.PI * 2, 0, Math.PI / 2);
+            const skyMaterial = new THREE.ShaderMaterial({
+                uniforms: {
+                    topColor: { value: new THREE.Color(0x0077ff) },    // Голубое небо
+                    middleColor: { value: new THREE.Color(0x87ceeb) }, // Более светлый голубой
+                    bottomColor: { value: new THREE.Color(0xb0e2ff) }  // Совсем светлый у горизонта
+                },
+                vertexShader: `
+        varying vec3 vWorldPosition;
+        void main() {
+            vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+            vWorldPosition = worldPosition.xyz;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+    `,
+                fragmentShader: `
+        uniform vec3 topColor;
+        uniform vec3 middleColor;
+        uniform vec3 bottomColor;
+        varying vec3 vWorldPosition;
+        void main() {
+            float h = normalize(vWorldPosition).y;
+            vec3 color = mix(bottomColor, middleColor, smoothstep(0.0, 0.5, h));
+            color = mix(color, topColor, smoothstep(0.3, 1.0, h));
+            gl_FragColor = vec4(color, 1.0);
+        }
+    `,
+                side: THREE.BackSide
+            });
+            const sky = new THREE.Mesh(skyGeometry, skyMaterial);
+            sky.position.set(0, 0, -400);
+            scene.add(sky);
+
+            // Добавьте код для создания облаков
+            function createCloud() {
+                const cloud = new THREE.Group();
+                const cloudGeometry = new THREE.SphereGeometry(1, 16, 16);
+                const cloudMaterial = new THREE.MeshStandardMaterial({
+                    color: 0xffffff,
+                    transparent: true,
+                    opacity: 0.9,
+                    roughness: 0.3,
+                    metalness: 0.2
+                });
+
+                // Создаем несколько сфер разного размера для формирования облака
+                for (let i = 0; i < 5; i++) {
+                    const scale = 0.8 + Math.random() * 0.5;
+                    const segment = new THREE.Mesh(cloudGeometry, cloudMaterial);
+                    segment.position.set(
+                        i * 0.5 * Math.random(),
+                        Math.random() * 0.3,
+                        Math.random() * 0.3
+                    );
+                    segment.scale.set(scale, scale * 0.6, scale);
+                    cloud.add(segment);
+                }
+
+                return cloud;
+            }
+
+            // Создаем несколько групп облаков
+            const clouds = [];
+            for (let i = 0; i < 20; i++) {
+                const cloud = createCloud();
+                cloud.position.set(
+                    -100 + Math.random() * 200, // Распределяем по всей ширине сцены
+                    30 + Math.random() * 20,    // Высота облаков
+                    -200 - Math.random() * 200  // Глубина сцены
+                );
+                const scale = 3 + Math.random() * 2;
+                cloud.scale.set(scale, scale, scale);
+                clouds.push(cloud);
+                scene.add(cloud);
+            }
+
+            // Добавляем анимацию облаков
+            animatedObjects.push({
+                animate: function (time) {
+                    clouds.forEach((cloud, index) => {
+                        // Медленное движение облаков
+                        cloud.position.x += 0.02;
+                        // Возвращаем облака в начало, когда они уходят слишком далеко
+                        if (cloud.position.x > 100) {
+                            cloud.position.x = -100;
+                        }
+                        // Легкое покачивание вверх-вниз
+                        cloud.position.y += Math.sin(time * 0.5 + index) * 0.01;
+                    });
+                }
+            });
+
+
+            // Создаем волны
+            const waves = [];
+            for (let i = 0; i < 30; i++) {
+                const waveGeometry = new THREE.PlaneGeometry(4, 0.5);
+                const waveMaterial = new THREE.MeshStandardMaterial({
+                    color: 0xFFFFFF,
+                    transparent: true,
+                    opacity: 0.3,
+                    depthWrite: false
+                });
+                const wave = new THREE.Mesh(waveGeometry, waveMaterial);
+                wave.rotation.x = -Math.PI / 2;
+                wave.position.set(
+                    -120 + Math.random() * 150,
+                    0.1,
+                    -50 - Math.random() * 300
+                );
+                wave.renderOrder = 0;
+                waves.push(wave);
+                scene.add(wave);
+            }
+
+            // Только анимация волн
+            animatedObjects.push({
+                animate: function (time) {
+                    waves.forEach((wave, index) => {
+                        const offset = index * 0.2;
+                        wave.position.y = 0.1 + Math.sin(time + offset) * 0.1;
+                    });
+                }
+            });
+
+            // Добавляем пальмы на пляж
+            for (let z = -20; z >= -350; z -= 30) {
+                if (Math.random() > 0.3) {
+                    const palm = createPalm();
+                    palm.position.set(-40 + Math.random() * 10, 0, z);
+                    const scale = 0.8 + Math.random() * 0.4;
+                    palm.scale.set(scale, scale, scale);
+                    scene.add(palm);
+                }
+            }
+        }
+
+
+        function createMountainShape() {
+            const points = [];
+            const segments = 10;
+            const baseWidth = 2;
+
+            // Создаем более естественный профиль горы
+            for (let i = 0; i <= segments; i++) {
+                const t = i / segments;
+                // Используем несколько синусоид для создания более естественной формы
+                const x = baseWidth * (1 - t) * (Math.sin(t * Math.PI * 2) * 0.2 + 1);
+                const y = t + Math.sin(t * Math.PI) * 0.2;
+                points.push(new THREE.Vector2(x, y));
+            }
+
+            return new THREE.LatheGeometry(points, 16);
+        }
+
+        // Функция создания горного хребта
+        function createDistantMountains() {
+            const mountainsGroup = new THREE.Group();
+
+            // Увеличиваем количество слоев и гор в каждом слое
+            for (let layer = 0; layer < 3; layer++) {
+                const layerGroup = new THREE.Group();
+                const mountainCount = 20 + layer * 4; // Увеличили количество гор
+
+                for (let i = 0; i < mountainCount; i++) {
+                    const geometry = createMountainShape();
+
+                    // Цвет зависит от слоя
+                    const color = new THREE.Color();
+                    color.setHSL(0.6, 0.15, 0.4 + layer * 0.1);
+
+                    const material = new THREE.MeshStandardMaterial({
+                        color: color,
+                        roughness: 0.8,
+                        metalness: 0.2,
+                        flatShading: true
+                    });
+
+                    const mountain = new THREE.Mesh(geometry, material);
+
+                    // Масштабируем
+                    const scale = 20 - layer * 3;
+                    mountain.scale.set(scale, scale + Math.random() * 10, scale);
+
+                    // Располагаем горы по более широкой дуге
+                    const angle = (i / mountainCount) * Math.PI * 1.5 - Math.PI * 0.75; // Расширенный угол охвата
+                    const radius = 500 + layer * 50;
+                    mountain.position.x = Math.cos(angle) * radius;
+                    mountain.position.z = Math.sin(angle) * radius - 400;
+                    mountain.position.y = -10;
+
+                    mountain.rotation.y = Math.random() * Math.PI;
+
+                    layerGroup.add(mountain);
+                }
+
+                mountainsGroup.add(layerGroup);
+            }
+
+            // Добавляем дополнительные горы для заполнения пространства
+            const extraMountains = 10;
+            for (let i = 0; i < extraMountains; i++) {
+                const geometry = createMountainShape();
+                const material = new THREE.MeshStandardMaterial({
+                    color: new THREE.Color().setHSL(0.6, 0.15, 0.45),
+                    roughness: 0.8,
+                    metalness: 0.2,
+                    flatShading: true
+                });
+
+                const mountain = new THREE.Mesh(geometry, material);
+                const scale = 15 + Math.random() * 5;
+                mountain.scale.set(scale, scale + Math.random() * 10, scale);
+
+                // Располагаем дополнительные горы для заполнения промежутков
+                mountain.position.x = -600 + i * 120;
+                mountain.position.z = -450 + Math.random() * 50;
+                mountain.position.y = -10;
+
+                mountainsGroup.add(mountain);
+            }
+
+            mountainsGroup.position.z = -500; // Дальше от камеры
+            // mountainsGroup.position.y = -20;  // Ниже, чтобы создать эффект расстояния
+
+            return mountainsGroup;
+        }
+
+        function createRealisticBuilding(x, z) {
+            const building = new THREE.Group();
+
+            // Более реалистичные пропорции
+            const width = 15 + Math.random() * 10;
+            const height = 40 + Math.random() * 60;
+            const depth = 18 + Math.random() * 12;
+
+            // Основное здание с сегментами для лучшей детализации
+            const buildingGeometry = new THREE.BoxGeometry(width, height, depth, 6, 10, 6);
+
+            // Материалы современных зданий
+            const buildingMaterials = [
+                { color: 0xE8E8E8, metalness: 0.2, roughness: 0.3 }, // Стекло и металл
+                { color: 0xD9D9D9, metalness: 0.1, roughness: 0.6 }, // Бетон
+                { color: 0xC0C0C0, metalness: 0.3, roughness: 0.4 }, // Композитные панели
+                { color: 0xB8B8B8, metalness: 0.4, roughness: 0.3 }  // Металлические панели
+            ];
+
+            const selectedMaterial = buildingMaterials[Math.floor(Math.random() * buildingMaterials.length)];
+            const buildingMaterial = new THREE.MeshPhysicalMaterial({
+                color: selectedMaterial.color,
+                metalness: selectedMaterial.metalness,
+                roughness: selectedMaterial.roughness,
+                envMapIntensity: 1.0,
+                reflectivity: 1.0
+            });
+
+            const mainBuilding = new THREE.Mesh(buildingGeometry, buildingMaterial);
+            mainBuilding.position.y = height / 2;
+            mainBuilding.castShadow = true;
+            mainBuilding.receiveShadow = true;
+            building.add(mainBuilding);
+
+            // Создание фасада здания
+            const createFacade = () => {
+                const facadeGroup = new THREE.Group();
+                const windowRows = Math.floor(height / 3.2);
+                const windowCols = Math.floor(width / 3);
+
+                for (let row = 0; row < windowRows; row++) {
+                    for (let col = 0; col < windowCols; col++) {
+                        // Создаем секцию фасада
+                        const sectionWidth = 2.8;
+                        const sectionHeight = 3;
+
+                        // Панель вокруг окна
+                        const panelGeometry = new THREE.BoxGeometry(sectionWidth, sectionHeight, 0.2);
+                        const panelMaterial = new THREE.MeshPhysicalMaterial({
+                            color: selectedMaterial.color,
+                            metalness: selectedMaterial.metalness + 0.1,
+                            roughness: selectedMaterial.roughness - 0.1,
+                            envMapIntensity: 1.2
+                        });
+                        const panel = new THREE.Mesh(panelGeometry, panelMaterial);
+
+                        // Окно
+                        const windowGeometry = new THREE.BoxGeometry(sectionWidth * 0.7, sectionHeight * 0.8, 0.1);
+                        const windowMaterial = new THREE.MeshPhysicalMaterial({
+                            color: 0x88CCFF,
+                            metalness: 0.9,
+                            roughness: 0.1,
+                            transmission: 0.5,
+                            transparent: true,
+                            reflectivity: 1.0,
+                            envMapIntensity: 2.0
+                        });
+                        const windowPane = new THREE.Mesh(windowGeometry, windowMaterial);
+                        windowPane.position.z = 0.1;
+
+                        const section = new THREE.Group();
+                        section.add(panel);
+                        section.add(windowPane);
+
+                        // Позиционирование секции
+                        section.position.set(
+                            -width / 2 + sectionWidth / 2 + col * sectionWidth,
+                            1 + row * sectionHeight,
+                            depth / 2 + 0.1
+                        );
+
+                        facadeGroup.add(section);
+
+                        // Задняя сторона здания
+                        const backSection = section.clone();
+                        backSection.rotation.y = Math.PI;
+                        backSection.position.z = -depth / 2 - 0.1;
+                        facadeGroup.add(backSection);
+                    }
+                }
+                return facadeGroup;
+            };
+
+            building.add(createFacade());
+
+            // Добавляем технические элементы на крыше
+            const addRoofElements = () => {
+                const roofGroup = new THREE.Group();
+
+                // Основная надстройка
+                const penthouseGeometry = new THREE.BoxGeometry(width * 0.3, 5, depth * 0.3);
+                const penthouse = new THREE.Mesh(penthouseGeometry, buildingMaterial);
+                penthouse.position.y = height + 2.5;
+                roofGroup.add(penthouse);
+
+                // Технические элементы
+                for (let i = 0; i < 5; i++) {
+                    const elementGeometry = new THREE.BoxGeometry(2, 1 + Math.random() * 3, 2);
+                    const element = new THREE.Mesh(elementGeometry, new THREE.MeshStandardMaterial({
+                        color: 0x666666,
+                        roughness: 0.8
+                    }));
+                    element.position.set(
+                        (Math.random() - 0.5) * width * 0.6,
+                        height + Math.random() * 2,
+                        (Math.random() - 0.5) * depth * 0.6
+                    );
+                    roofGroup.add(element);
+                }
+
+                return roofGroup;
+            };
+
+            building.add(addRoofElements());
+
+            // Позиционирование здания
+            building.position.set(x, 0, z);
+            building.rotation.y = (Math.random() - 0.5) * 0.1;
+
+            return building;
+        }
+
+
+        function endGame(victory = false) {
+            gameOver = true;
+            isRunning = false;
+
+            const message = victory ?
+                `Победа! Вы прошли все арки!\nВремя: ${timerElement ? timerElement.textContent : ''}` :
+                `Игра окончена!\nВремя: ${timerElement ? timerElement.textContent : ''}`;
+
+            if (overlay) {
+                overlay.style.display = 'block';
+                overlay.innerHTML = message.replace('\n', '<br>');
+            }
+
+            if (victory) {
+                createVictoryEffect();
+            }
+
+            // Остановка всех движений
+            if (playerCube) {
+                playerCube.position.z += 0; // Остановка движения
+            }
+
+            // Добавим кнопку "Играть снова"
+            const restartButton = document.createElement('button');
+            restartButton.innerHTML = 'Играть снова';
+            restartButton.style.marginTop = '20px';
+            restartButton.onclick = resetGame;
+            if (overlay) {
+                overlay.appendChild(restartButton);
+            }
+        }
+
+        function resetGame() {
+            // Сброс состояния игры
+            gameOver = false;
+            gameStarted = false;
+
+            // Удаление старых препятствий
+            if (obstacles) {
+                obstacles.forEach(obstacle => {
+                    if (obstacle && obstacle.archGroup) {
+                        scene.remove(obstacle.archGroup);
+                    }
+                });
+            }
+            obstacles = [];
+
+            // Сброс позиции игрока
+            if (playerCube) {
+                playerCube.position.set(0, 0.5, 0);
+                playerCube.scale.set(1, 1, 1);
+                playerCube.material.color.setHex(0xffff00);
+            }
+
+            // Удаление эффекта частиц
+            if (particleSystem) {
+                scene.remove(particleSystem);
+                particleSystem = null;
+            }
+
+            // Скрытие оверлея
+            if (overlay) {
+                overlay.style.display = 'none';
+            }
+
+            // Пересоздание препятствий
+            createObstacles();
+
+            // Перезапуск игры
+            startGame();
+        }
+
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+
+
+
+        // В функции init() измените настройки сцены и тумана
+        function init() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0xFFAA88); // Теплый оранжево-розовый оттенок
+            scene.fog = new THREE.Fog(0x87CEEB, 50, 300);
+
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 2, 5);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            document.body.appendChild(renderer.domElement);
+
+            const ambientLight = new THREE.AmbientLight(0xFF9966, 0.5); // Мягкий теплый свет
+            scene.add(ambientLight);
+
+            const sunLight = new THREE.DirectionalLight(0xFFCC88, 1);
+            sunLight.position.set(-50, 50, -25); // Низкое положение солнца для длинных теней
+            sunLight.castShadow = true; // Включаем тени от источника света
+            sunLight.shadow.mapSize.width = 1024;
+            sunLight.shadow.mapSize.height = 1024;
+            sunLight.shadow.camera.near = 0.5;
+            sunLight.shadow.camera.far = 500;
+            scene.add(sunLight);
+
+            // Мягкий свет для подсветки теней
+            const fillLight = new THREE.HemisphereLight(0x86c1ff, 0xffffff, 0.3);
+            scene.add(fillLight);
+
+            // Добавляем атмосферный туман
+            scene.fog = new THREE.Fog(0xFFAA88, 100, 500); // Цвет и плотность тумана
+
+            const bottomLight = new THREE.DirectionalLight(0x661100, 0.3);
+            bottomLight.position.set(0, -10, 0);
+            scene.add(bottomLight);
+
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+
+            // Создание дороги
+            const roadGeometry = new THREE.PlaneGeometry(20, 200);
+            const roadMaterial = new THREE.MeshStandardMaterial({
+                color: 0x333333,
+                roughness: 0.8,
+                metalness: 0.2
+            });
+            const road = new THREE.Mesh(roadGeometry, roadMaterial);
+            road.rotation.x = -Math.PI / 2;
+            road.position.z = -100;
+            road.receiveShadow = true;
+            scene.add(road);
+
+            // Создание Губки Боба (куб с текстурой)
+            // const playerGeometry = new THREE.BoxGeometry(1, 1, 1);
+            // const playerMaterial = new THREE.MeshStandardMaterial({
+            //     color: 0xffff00,  // Жёлтый цвет
+            //     map: spongeTexture,
+            //     roughness: 0.7,
+            //     metalness: 0.0
+            // });
+            // playerCube = new THREE.Mesh(playerGeometry, playerMaterial);
+            // playerCube.position.y = 0.5;
+            // playerCube.castShadow = true;
+            // scene.add(playerCube);
+
+
+            const dracoLoader = new THREE.DRACOLoader();
+            const loader = new THREE.GLTFLoader();
+
+            // Настраиваем DRACOLoader
+            dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.6/'); // Путь к декодеру
+            dracoLoader.setDecoderConfig({ type: 'js' });
+
+            // Устанавливаем DRACOLoader для GLTFLoader
+            loader.setDRACOLoader(dracoLoader);
+            loader.load(
+                'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/master/2.0/Duck/glTF/Duck.gltf',
+                function (gltf) {
+                    playerCar = gltf.scene;
+                    playerCar.scale.set(0.05, 0.05, 0.05);
+                    playerCar.position.set(0, 0, 0);
+                                        
+                    const box = new THREE.Box3().setFromObject(playerCar);
+                    const center = box.getCenter(new THREE.Vector3());
+                    playerCar.position.sub(center);
+
+                    playerCar.traverse((node) => {
+                        if (node.isMesh) {
+                            node.castShadow = true;
+                            node.receiveShadow = true;
+                        }
+                    });
+
+                    scene.add(playerCar);
+                }
+            );
+
+            const mountains = createDistantMountains();
+            scene.add(mountains);
+
+            createEnvironment();
+            addPalms();
+            addSpectators();
+            createFinishLine();
+            createObstacles();
+
+            window.addEventListener('resize', onWindowResize, false);
+
+            animate();
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const time = Date.now() * 0.001;
+
+            // Анимация окружения
+            if (animatedObjects.length > 0) {
+                animatedObjects.forEach(obj => {
+                    if (obj && typeof obj.animate === 'function') {
+                        obj.animate(time);
+                    }
+                });
+            }
+
+            // Обновление игры
+            if (!gameStarted || !playerCar) return;
+
+            if (!gameOver) {
+                const moveSpeed = 0.3;
+                playerCar.position.z -= moveSpeed;
+
+                if (distantMountains) {
+                    distantMountains.position.z = camera.position.z - 400;
+                    distantMountains.position.x = camera.position.x * 0.05;
+                }
+
+                // Анимация машины (аналогично кубу)
+                playerCar.rotation.y = Math.sin(time * 0.003) * 0.1;
+                playerCar.rotation.x = Math.sin(time * 0.002) * 0.05;
+
+                // Обновление позиции камеры
+                const carBox = new THREE.Box3().setFromObject(playerCar);
+                const carSize = carBox.getSize(new THREE.Vector3());
+                const cameraHeight = 2 + carSize.y;
+                camera.position.x = playerCar.position.x;
+                camera.position.y = cameraHeight;
+                camera.position.z = playerCar.position.z + 5;
+                camera.lookAt(playerCar.position);
+
+                // Проверка столкновений и прохождения арок
+                if (obstacles && obstacles.length > 0) {
+                    let allPassed = true;
+                    let collision = false;
+
+                    obstacles.forEach(obstacle => {
+                        if (!obstacle || !obstacle.archGroup) return;
+
+                        const { archGroup, archWidth, archHeight, passed } = obstacle;
+                        if (passed) return;
+
+                        const dz = playerCar.position.z - archGroup.position.z;
+
+                        // Проверка столкновения
+                        if (Math.abs(dz) < 1) {
+                            const maxPlayerWidth = carSize.x;
+                            const maxPlayerHeight = carSize.y;
+
+                            if (maxPlayerWidth > archWidth || maxPlayerHeight > archHeight) {
+                                collision = true;
+                                playerCar.traverse((node) => {
+                                    if (node.isMesh) {
+                                        node.material.color.setHex(0xff0000);
+                                        setTimeout(() => {
+                                            node.material.color.setHex(0xffff00);
+                                        }, 200);
+                                    }
+                                });
+                            } else {
+                                obstacle.passed = true;
+                                archGroup.children.forEach(child => {
+                                    if (child.material) {
+                                        child.material.color.setHex(0x00ff00);
+                                    }
+                                });
+                            }
+                        }
+
+                        if (!passed) {
+                            allPassed = false;
+                        }
+                    });
+
+                    // Проверка победы
+                    const lastObstacle = obstacles[obstacles.length - 1];
+                    if (lastObstacle && playerCar.position.z < lastObstacle.archGroup.position.z - 10 && allPassed) {
+                        endGame(true); // Победа
+                        return;
+                    }
+
+                    // Остановка при столкновении
+                    if (collision) {
+                        playerCar.position.z += moveSpeed;
+                    }
+                }
+
+                // Проверка границ дороги
+                const roadWidth = 10;
+                if (Math.abs(playerCar.position.x) > roadWidth) {
+                    playerCar.position.x = Math.sign(playerCar.position.x) * roadWidth;
+                }
+
+                // Эффект тряски камеры
+                camera.position.y += Math.sin(time * 10) * 0.01;
+            }
+
+            renderer.render(scene, camera);
+        }
+
+
+        // Функция создания эффекта победы (вызывается при победе)
+        function createVictoryEffect() {
+            if (particleSystem) {
+                scene.remove(particleSystem);
+            }
+
+            const particleCount = 100;
+            particleGeometry = new THREE.BufferGeometry();
+            const positions = new Float32Array(particleCount * 3);
+            const colors = new Float32Array(particleCount * 3);
+            const velocities = new Float32Array(particleCount);
+
+            for (let i = 0; i < particleCount; i++) {
+                // Позиции
+                positions[i * 3] = playerCube.position.x + (Math.random() - 0.5) * 10;
+                positions[i * 3 + 1] = playerCube.position.y + Math.random() * 10;
+                positions[i * 3 + 2] = playerCube.position.z + (Math.random() - 0.5) * 10;
+
+                // Цвета
+                colors[i * 3] = Math.random();
+                colors[i * 3 + 1] = Math.random();
+                colors[i * 3 + 2] = Math.random();
+
+                // Скорости
+                velocities[i] = 0.1 + Math.random() * 0.1;
+            }
+
+            particleGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            particleGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+            const particleMaterial = new THREE.PointsMaterial({
+                size: 0.2,
+                vertexColors: true,
+                transparent: true,
+                opacity: 0.8
+            });
+
+            particleSystem = new THREE.Points(particleGeometry, particleMaterial);
+            particleSystem.userData.velocities = velocities;
+            scene.add(particleSystem);
+        }
+
+        function initAudio() {
+            navigator.mediaDevices.getUserMedia({ audio: true })
+                .then(stream => {
+                    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    const analyser = audioContext.createAnalyser();
+                    const microphone = audioContext.createMediaStreamSource(stream);
+                    microphone.connect(analyser);
+
+                    analyser.fftSize = 256;
+                    const bufferLength = analyser.frequencyBinCount;
+                    const dataArray = new Uint8Array(bufferLength);
+
+                    function analyzeAudio() {
+                        if (!gameOver && playerCar) {
+                            analyser.getByteFrequencyData(dataArray);
+                            let sum = 0;
+                            for (let i = 0; i < bufferLength; i++) {
+                                sum += dataArray[i];
+                            }
+                            const average = sum / bufferLength;
+                            scaleFactor = Math.max(0.3, 1.5 - (average / 128)); // Изменили минимальный размер
+
+                            const volumeHeight = (average / 128) * 190;
+                            volumeBar.style.height = `${volumeHeight}px`;
+
+                            // Изменяем размер машины вместо куба
+                            playerCar.scale.set(
+                                0.5 * scaleFactor,
+                                0.5 * scaleFactor,
+                                0.5 * scaleFactor
+                            );
+
+                            // Корректируем позицию по Y в зависимости от масштаба
+                            playerCar.position.y = 0.5 * scaleFactor;
+                        }
+                        requestAnimationFrame(analyzeAudio);
+                    }
+                    analyzeAudio();
+                })
+                .catch(err => console.error('Ошибка доступа к микрофону:', err));
+
+            audioInitialized = true;
+        }
+
+        // window.addEventListener('click', () => {
+        //     if (!audioInitialized) {
+        //         init();
+        //         initAudio();
+        //         overlay.style.display = 'none';
+        //         startTime = new Date().getTime();
+        //         isRunning = true;
+        //         gameStarted = true;
+        //         setInterval(updateTimer, 1000);
+        //     }
+        // });
+
+        window.addEventListener('load', function() {
+            if (!audioInitialized) {
+                init();
+                initAudio();
+                overlay.style.display = 'none';
+                startTime = new Date().getTime();
+                isRunning = true;
+                gameStarted = true;
+                setInterval(updateTimer, 1000);
+            }
+        });
+
+    </script>
+</body>
+
+</html>
